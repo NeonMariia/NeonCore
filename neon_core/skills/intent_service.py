@@ -28,8 +28,7 @@ import wave
 
 from neon_core.configuration import Configuration
 from neon_core.language import get_lang_config
-from neon_core.processing_modules.text import TextParsersService
-
+from neon_transformers.text_transformers import UtteranceTransformersService
 from copy import copy
 from mycroft_bus_client import Message
 from neon_utils.message_utils import get_message_user
@@ -61,8 +60,7 @@ class NeonIntentService(IntentService):
 
         self._setup_converse_handlers()
 
-        self.parser_service = TextParsersService(self.bus)
-        self.parser_service.start()
+        self.transformers = UtteranceTransformersService(self.bus)
 
         if Transcribe:
             self.transcript_service = Transcribe()
@@ -117,12 +115,10 @@ class NeonIntentService(IntentService):
         Utterances may be modified by any parser and context overwritten
         """
         utterances = message.data.get('utterances', [])
-        for parser in self.parser_service.modules:
-            # mutate utterances and retrieve extra data
-            utterances, data = self.parser_service.parse(parser, utterances, lang)
-            # update message context with extra data
-            message.context = merge_dict(message.context, data)
+        message.context["lang"] = lang
+        utterances, message.context = self.transformers.transform(utterances, message.context)
         message.data["utterances"] = utterances
+        return message
 
     def handle_utterance(self, message):
         """
@@ -162,7 +158,7 @@ class NeonIntentService(IntentService):
 
             # Get text parser context
             with stopwatch:
-                self._get_parsers_service_context(message, lang)
+                message = self._get_parsers_service_context(message, lang)
             message.context["timing"]["text_parsers"] = stopwatch.time
 
             # Catch empty utterances after parser service
